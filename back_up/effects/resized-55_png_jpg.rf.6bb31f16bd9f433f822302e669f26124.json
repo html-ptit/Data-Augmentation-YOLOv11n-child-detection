@@ -1,0 +1,44 @@
+{
+  "image_name": "resized-55_png_jpg.rf.6bb31f16bd9f433f822302e669f26124.jpg",
+  "processing_time": "2025-05-12 22:41:18",
+  "original_size": "640x640",
+  "applied_effects": [
+    {
+      "name": "blur",
+      "parameters": {
+        "kernel_size": 15
+      }
+    },
+    {
+      "name": "noise",
+      "parameters": {
+        "strength": 29.09
+      }
+    },
+    {
+      "name": "histogram_equalization",
+      "parameters": {}
+    },
+    {
+      "name": "stripes",
+      "parameters": {
+        "direction": "horizontal",
+        "width": 5,
+        "opacity": 0.12,
+        "count": 5
+      }
+    },
+    {
+      "name": "blending",
+      "parameters": {
+        "strength": 0.26
+      }
+    },
+    {
+      "name": "spatial_filter",
+      "parameters": {
+        "kernel_size": 3
+      }
+    }
+  ]
+}

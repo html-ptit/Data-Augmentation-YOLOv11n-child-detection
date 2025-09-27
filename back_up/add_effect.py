@@ -1,0 +1,254 @@
+import os
+import shutil
+import random
+from typing import Tuple, List, Any
+import argparse
+from pathlib import Path
+import cv2
+import numpy as np
+import matplotlib.pyplot as plt
+import yaml
+def load_config(config_path='cfg_augment.yaml'):
+    """
+    Load configuration from YAML file
+    
+    Args:
+        config_path: Path to the configuration file
+        
+    Returns:
+        dict: Configuration dictionary
+    """
+    if not os.path.exists(config_path):
+        raise FileNotFoundError(f"Config file not found: {config_path}")
+    
+    with open(config_path, 'r') as file:
+        config = yaml.safe_load(file)
+    
+    return config
+
+# Load the configuration
+config = load_config()
+image_config = config['add_effect']
+
+data_path = image_config['data_path']
+apply_noise_ratio = image_config['apply_noise_ratio']
+apply_light_shift_ratio = image_config['apply_light_shift_ratio']
+output_dir = image_config['output_dir']
+
+# ---------------------------
+# Noise Augmentations
+# ---------------------------
+
+def add_stripes(image):
+    img = image.copy()
+    h, w = img.shape[:2]
+    stripe_img = np.zeros_like(img)
+    for _ in range(np.random.randint(5, 10)):  # more stripes
+        y = np.random.randint(0, h)
+        thickness = np.random.randint(5, 10)
+        color = tuple([np.random.randint(80, 150) for _ in range(3)])  # stronger color
+        cv2.line(stripe_img, (0, y), (w, y), color, thickness)
+    return cv2.addWeighted(img, 0.8, stripe_img, 0.2, 0)  # more blending
+
+def spatial_filter(image):
+    return cv2.GaussianBlur(image, (5, 5), 8)  # stronger blur
+
+def apply_noise(image):
+    effects = [("add_stripes", add_stripes), ("spatial_filter", spatial_filter)]
+    chosen = random.sample(effects, k=random.randint(1, min(2, len(effects))))
+    applied = []
+    for name, effect in chosen:
+        image = effect(image)
+        applied.append(name)
+    return image, applied
+
+# ---------------------------
+# Light Shift Augmentations
+# ---------------------------
+
+def histogram_equalization(image):
+    """Equalize luminance but reduce blue cast slightly."""
+    img_yuv = cv2.cvtColor(image, cv2.COLOR_BGR2YUV)
+    # Equalize only the Y (luminance) channel
+    img_yuv[:, :, 0] = cv2.equalizeHist(img_yuv[:, :, 0])
+    # Pull the U (blue–yellow) channel slightly toward neutral to reduce blue cast
+    uv = img_yuv[:, :, 2].astype(np.float32)
+    beta = 0.2 # increase to neutralize color
+    uv = uv * (1 - beta) + 128 * beta
+    img_yuv[:, :, 2] = uv.clip(0, 255).astype(np.uint8)
+    return cv2.cvtColor(img_yuv, cv2.COLOR_YUV2BGR)
+
+def contrast_stretching(image):
+    """Stronger contrast: stretch extremes more aggressively."""
+    # Compute lower and upper percentiles
+    in_min = np.percentile(image, 2)
+    in_max = np.percentile(image, 98)
+    # Stretch and amplify contrast by a factor
+    alpha = 1.55 # increase for stronger contrast
+    stretched = (image.astype(np.float32) - in_min) * (255.0 / (in_max - in_min + 1e-5)) * alpha
+    stretched = np.clip(stretched, 0, 255)
+    return stretched.astype(np.uint8)
+
+def color_grading(image):
+    """More dramatic color grading via a steeper LUT."""
+    # Create a lookup table that boosts mids and highlights strongly
+    lut = np.interp(
+        np.arange(256),
+        [0,  64, 128, 192, 255],
+        [20, 120, 200, 245, 255]
+    ).astype(np.uint8)
+    return cv2.LUT(image, lut)
+
+
+def apply_light_shift(image):
+    effects = [
+        ("histogram_equalization", histogram_equalization),
+        ("contrast_stretching", contrast_stretching),
+        ("color_grading", color_grading)
+    ]
+    chosen = random.sample(effects, k=random.randint(1, min(2, len(effects))))
+    applied = []
+    for name, effect in chosen:
+        image = effect(image)
+        applied.append(name)
+    return image, applied
+
+
+def load_image(image_path: str) -> Any:
+    return f"Image loaded from {image_path}"
+
+
+def save_image(image: Any, output_path: str) -> None:
+    cv2.imwrite(output_path, image)
+    print(f"Image saved to {output_path}")
+
+
+def save_text(text: str, output_path: str) -> None:
+    os.makedirs(os.path.dirname(output_path), exist_ok=True)
+    with open(output_path, 'w') as f:
+        f.write(text)
+
+
+def get_image_files(image_dir: str) -> List[str]:
+    valid_extensions = ['.jpg', '.jpeg', '.png', '.bmp', '.tiff']
+    return [f for f in os.listdir(image_dir) 
+            if os.path.isfile(os.path.join(image_dir, f)) and 
+            any(f.lower().endswith(ext) for ext in valid_extensions)]
+
+
+def create_output_dirs(output_dir: str) -> None:
+    for subdir in ['images', 'labels']:
+        os.makedirs(os.path.join(output_dir, subdir), exist_ok=True)
+
+
+def apply_effect(data_path: str, output_dir: str, effect_name: str, 
+                 effect_func, effect_ratio: float) -> None:
+    image_dir = os.path.join(data_path, 'images')
+    label_dir = os.path.join(data_path, 'labels')
+    
+    image_files = get_image_files(image_dir)
+    
+    random.shuffle(image_files)
+    
+    num_images_to_process = int(len(image_files) * effect_ratio)
+    print(f"Applying {effect_name} to {num_images_to_process} images")
+    
+    for i in range(num_images_to_process):
+        idx = i % len(image_files)
+        image_file = image_files[idx]
+        
+        image_path = os.path.join(image_dir, image_file)
+        label_path = os.path.join(label_dir, os.path.splitext(image_file)[0] + '.txt')
+        
+        if not os.path.exists(label_path):
+            print(f"Warning: Label file not found for {image_file}, skipping")
+            continue
+        
+        image = cv2.imread(image_path)
+        
+        processed_image, effect_info = effect_func(image)
+        
+        # effect_info is a list of applied effects
+        # effect code = 4 first character of effect name
+        # exmaple: ['histogram_equalization', 'contrast_stretching'] -> hist-cont
+
+        effect_code = '-'.join([name[:4] for name in effect_info])
+        new_filename = f"{effect_name}_{i+1}_{effect_code}_{image_file}"
+        new_filename_base = os.path.splitext(new_filename)[0]
+        
+        output_image_path = os.path.join(output_dir, 'images', new_filename)
+        output_label_path = os.path.join(output_dir, 'labels', new_filename_base + '.txt')
+        
+        save_image(processed_image, output_image_path)
+        
+        shutil.copy(label_path, output_label_path)
+        
+        print(f"Processed {i+1}/{num_images_to_process}: {new_filename}")
+
+def clone_original_data(data_path: str, output_dir: str) -> None:
+    """
+    Clone toàn bộ dữ liệu gốc vào thư mục đầu ra
+    
+    Args:
+        data_path: Đường dẫn thư mục chứa dữ liệu gốc
+        output_dir: Đường dẫn thư mục đầu ra
+    """
+    # Clone images
+    image_dir = os.path.join(data_path, 'images')
+    output_image_dir = os.path.join(output_dir, 'images')
+    
+    for image_file in os.listdir(image_dir):
+        if os.path.isfile(os.path.join(image_dir, image_file)):
+            src_path = os.path.join(image_dir, image_file)
+            dst_path = os.path.join(output_image_dir, image_file)
+            shutil.copy2(src_path, dst_path)
+            print(f"Cloned original image: {image_file}")
+    
+    # Clone labels
+    label_dir = os.path.join(data_path, 'labels')
+    output_label_dir = os.path.join(output_dir, 'labels')
+    
+    for label_file in os.listdir(label_dir):
+        if os.path.isfile(os.path.join(label_dir, label_file)):
+            src_path = os.path.join(label_dir, label_file)
+            dst_path = os.path.join(output_label_dir, label_file)
+            shutil.copy2(src_path, dst_path)
+            print(f"Cloned original label: {label_file}")
+    
+    print("All original files cloned successfully!")
+
+
+def process_images(data_path: str, apply_noise_ratio: float, apply_light_shift_ratio: float) -> None:
+
+    create_output_dirs(output_dir)
+
+    # clone_original_data(data_path, output_dir)
+
+    apply_effect(data_path, output_dir, "apply_noise", apply_noise, apply_noise_ratio)
+    
+    apply_effect(data_path, output_dir, "apply_light_shift", apply_light_shift, apply_light_shift_ratio)
+    
+    print("Processing completed successfully!")
+
+
+def main():
+    
+    if not os.path.exists(data_path):
+        print(f"Error: Data path '{data_path}' does not exist")
+        return
+    
+    if not os.path.exists(os.path.join(data_path, 'images')):
+        print(f"Error: Images folder not found in '{data_path}'")
+        return
+    
+    if not os.path.exists(os.path.join(data_path, 'labels')):
+        print(f"Error: Labels folder not found in '{data_path}'")
+        return
+    
+    process_images(data_path, apply_noise_ratio, apply_light_shift_ratio)
+
+    
+
+
+if __name__ == "__main__":
+    main()

@@ -1,0 +1,37 @@
+{
+  "image_name": "resized-44_png_jpg.rf.9e5d5efef21e77cd8acac1bb9a8afc83.jpg",
+  "processing_time": "2025-05-12 22:41:18",
+  "original_size": "640x640",
+  "applied_effects": [
+    {
+      "name": "noise",
+      "parameters": {
+        "strength": 23.26
+      }
+    },
+    {
+      "name": "contrast_stretching",
+      "parameters": {
+        "strength": 1.38
+      }
+    },
+    {
+      "name": "stripes",
+      "parameters": {
+        "direction": "horizontal",
+        "width": 7,
+        "opacity": 0.21,
+        "count": 6
+      }
+    },
+    {
+      "name": "color_grading",
+      "parameters": {
+        "shadows": 10,
+        "midtones": 5,
+        "highlights": -12,
+        "saturation": 1.12
+      }
+    }
+  ]
+}
